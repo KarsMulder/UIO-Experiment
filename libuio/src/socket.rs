@@ -8,11 +8,39 @@ use rustix::io::FdFlags;
 use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, SendAncillaryBuffer, SendAncillaryMessage, SendFlags};
 
 use crate::fs_utils::UnlinkOnDrop;
+use crate::message::{EventMsg, RequestMsg};
 
 /// A message that can be send through a SeqPacketChannel. It is a vector of bytes that optionally contains
 /// space for file descriptors.
 pub struct Packet {
     pub data: Vec<u8>,
+    pub fds: Vec<OwnedFd>,
+}
+
+impl Packet {
+    // TODO: This leaks implementation details. The public API shouldn't expose bincode::Error.
+    // Also, I should consider using TryInto and TryFrom.
+    pub fn try_into_event(self) -> Result<(EventMsg, Vec<OwnedFd>), bincode::Error> {
+        let msg = bincode::deserialize(&self.data)?;
+        Ok((msg, self.fds))
+    }
+    pub fn try_from_event(event: EventMsg, fds: Vec<OwnedFd>) -> Result<Packet, bincode::Error> {
+        let data = bincode::serialize(&event)?;
+        Ok(Packet { data, fds })
+    }
+
+    pub fn try_into_request(self) -> Result<(RequestMsg, Vec<OwnedFd>), bincode::Error> {
+        let msg = bincode::deserialize(&self.data)?;
+        Ok((msg, self.fds))
+    }
+    pub fn try_from_request(request: RequestMsg, fds: Vec<OwnedFd>) -> Result<Packet, bincode::Error> {
+        let data = bincode::serialize(&request)?;
+        Ok(Packet { data, fds })
+    }
+}
+
+pub struct Message<T> {
+    pub msg: T,
     pub fds: Vec<OwnedFd>,
 }
 

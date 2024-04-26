@@ -1,8 +1,12 @@
 #![allow(dead_code)]
 
 pub mod socket;
+pub mod message;
 
 mod fs_utils;
+
+#[macro_use]
+extern crate serde;
 
 pub fn add(left: usize, right: usize) -> usize {
     left + right

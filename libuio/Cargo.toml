@@ -8,3 +8,5 @@ edition = "2021"
 [dependencies]
 rustix = { version = "0.38.34", features = ["net", "fs", "event"] }
 libc = "0.2.153"
+bincode = "1.3.3"
+serde = { version = "1.0.198", features = ["derive"] }

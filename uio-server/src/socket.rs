@@ -91,6 +91,9 @@ impl SeqPacketChannel {
             self.read_buffer.data.extend_from_slice(message);
 
             // TODO: In production code, all of the following instances of panic! are obviously unacceptable.
+            if res.bytes == 0 {
+                panic!("Received zero bytes from socket. Investigate why this happens.");
+            }
             if res.flags.contains(RecvFlags::TRUNC) {
                 panic!("Part of a message was truncated!");
             }

@@ -1,10 +1,6 @@
-use std::ffi::CString;
 use std::mem::MaybeUninit;
-use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd};
+use std::os::fd::{AsRawFd, OwnedFd};
 use std::path::PathBuf;
-use std::os::unix::ffi::OsStrExt;
-
-use anyhow::Context;
 
 use crate::fs_utils::UnlinkOnDrop;
 
@@ -33,50 +29,20 @@ pub struct SeqPacketChannel {
 
 impl SeqPacketSocket {
     pub fn open(path: PathBuf) -> anyhow::Result<Self> {
-        // Convert the path from a Rust representation to something more compatible with libc.
-        // ... I really think Rust should make basic FFI tasks like this easier than it currently is.
-        let path_cstr = CString::new(path.as_os_str().as_bytes()).expect("UIO socket path contains null bytes.");
-        let mut path_carray: [i8; 108] = [0; 108];
-        if path_cstr.as_bytes_with_nul().len() > path_carray.len() {
-            bail!("Socket path too long.");
-        }
-        unsafe { libc::strncpy(&mut path_carray as *mut i8, path_cstr.as_ptr(), path_carray.len() - 1) };
-
         // Create a socket FD.
-        let socket = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_SEQPACKET, 0) };
-        if socket < 0 {
-            return Err(anyhow::Error::from(std::io::Error::last_os_error()))
-                .context("Failed to create a socket fd!");
-        }
-        let socket = unsafe { OwnedFd::from_raw_fd(socket) };
+        let socket = rustix::net::socket(rustix::net::AddressFamily::UNIX, rustix::net::SocketType::SEQPACKET, None)?;
 
         // Give the file descriptor the proper flags.
-        crate::fs_utils::set_cloexec(socket.as_fd());
-        unsafe { libc::fcntl(socket.as_raw_fd(), libc::F_SETFL, libc::O_NONBLOCK); }
+        rustix::fs::fcntl_setfd(&socket, rustix::fs::FdFlags::CLOEXEC)?;
+        rustix::fs::fcntl_setfl(&socket, rustix::fs::OFlags::NONBLOCK)?;
 
         // Bind the socket to the filesystem.
-        let socket_name = libc::sockaddr_un {
-            sun_path: path_carray, sun_family: libc::AF_UNIX.try_into().unwrap()
-        };
-        let res = unsafe {
-            libc::bind(
-                socket.as_raw_fd(),
-                &socket_name as *const libc::sockaddr_un as *const libc::sockaddr,
-                socket_name.sun_path.len().try_into().unwrap()
-            )
-        };
-        if res < 0 {
-            return Err(anyhow::Error::from(std::io::Error::last_os_error()))
-                .context("Failed to bind the socket.");
-        }
+        let socket_name = rustix::net::SocketAddrUnix::new(path.clone())?;
+        rustix::net::bind_unix(&socket, &socket_name)?;
 
         // Start listening to incoming connections.
         let backlog_size = 32;
-        let res = unsafe { libc::listen(socket.as_raw_fd(), backlog_size) };
-        if res < 0 {
-            return Err(anyhow::Error::from(std::io::Error::last_os_error()))
-                .context("Failed to listen to the socket.");
-        }
+        rustix::net::listen(&socket, backlog_size)?;
 
         Ok(SeqPacketSocket {
             fd: socket, _path: UnlinkOnDrop::new(path)
@@ -85,18 +51,14 @@ impl SeqPacketSocket {
 
     /// Receives a new incoming connection from a program.
     pub fn accept(&self) -> Result<SeqPacketChannel, std::io::Error> {
-        let fd = unsafe {
-            libc::accept4(
-                self.fd.as_raw_fd(), std::ptr::null_mut(), std::ptr::null_mut(), libc::SOCK_NONBLOCK | libc::SOCK_CLOEXEC
-            )
-        };
-
-        if fd < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        let fd = unsafe { OwnedFd::from_raw_fd(fd) };
-
+        let fd = rustix::net::accept_with(self, rustix::net::SocketFlags::NONBLOCK | rustix::net::SocketFlags::CLOEXEC)?;
         Ok(SeqPacketChannel { fd, read_buffer: Packet::empty() })
+    }
+}
+
+impl std::os::fd::AsFd for SeqPacketSocket {
+    fn as_fd(&self) -> std::os::fd::BorrowedFd<'_> {
+        self.fd.as_fd()
     }
 }
 
@@ -151,5 +113,11 @@ impl SeqPacketChannel {
 
         unimplemented!()
 
+    }
+}
+
+impl std::os::fd::AsFd for SeqPacketChannel {
+    fn as_fd(&self) -> std::os::fd::BorrowedFd<'_> {
+        self.fd.as_fd()
     }
 }

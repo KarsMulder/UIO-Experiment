@@ -1,16 +1,12 @@
+#![allow(dead_code)]
+
 use std::path::Path;
 
 use anyhow::Context;
 use rustix::event::{PollFd, PollFlags};
-use socket::SeqPacketChannel;
 
-use crate::socket::SeqPacketSocket;
-
-mod socket;
-mod fs_utils;
-
-#[macro_use]
-extern crate anyhow;
+use libuio::socket::SeqPacketChannel;
+use libuio::socket::SeqPacketSocket;
 
 fn main() {
     // Ensure that the path to our socket is available.

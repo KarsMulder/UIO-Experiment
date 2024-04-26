@@ -1,11 +1,9 @@
-use std::io::IoSliceMut;
-use std::mem::MaybeUninit;
-use std::os::fd::{AsRawFd, OwnedFd};
-use std::path::PathBuf;
-
+use std::io::{IoSlice, IoSliceMut};
+use std::os::fd::{OwnedFd, AsFd, BorrowedFd};
+use std::path::{Path, PathBuf};
 use rustix::fs::OFlags;
 use rustix::io::FdFlags;
-use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags};
+use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, SendAncillaryBuffer, SendAncillaryMessage, SendFlags, SocketAddrAny, SocketAddrUnix};
 
 use crate::fs_utils::UnlinkOnDrop;
 
@@ -37,6 +35,7 @@ pub struct SeqPacketChannel {
 }
 
 impl SeqPacketSocket {
+    /// Creates a new socket that accepts incoming connections. Used by the server.
     pub fn open(path: PathBuf) -> anyhow::Result<Self> {
         // Create a socket FD.
         let socket = rustix::net::socket(rustix::net::AddressFamily::UNIX, rustix::net::SocketType::SEQPACKET, None)?;
@@ -46,7 +45,7 @@ impl SeqPacketSocket {
         rustix::fs::fcntl_setfl(&socket, OFlags::NONBLOCK)?;
 
         // Bind the socket to the filesystem.
-        let socket_name = rustix::net::SocketAddrUnix::new(path.clone())?;
+        let socket_name = rustix::net::SocketAddrUnix::new(&path)?;
         rustix::net::bind_unix(&socket, &socket_name)?;
 
         // Start listening to incoming connections.
@@ -72,6 +71,24 @@ impl std::os::fd::AsFd for SeqPacketSocket {
 }
 
 impl SeqPacketChannel {
+    /// Connects to an already existing socket. Used by the client.
+    pub fn open(path: &Path) -> Result<Self, std::io::Error> {
+        // Create a socket FD.
+        let socket = rustix::net::socket(rustix::net::AddressFamily::UNIX, rustix::net::SocketType::SEQPACKET, None)?;
+
+        // Give the file descriptor the proper flags.
+        rustix::fs::fcntl_setfd(&socket, FdFlags::CLOEXEC)?;
+        rustix::fs::fcntl_setfl(&socket, OFlags::NONBLOCK)?;
+        
+        // Open the socket from the filesystem.
+        let socket_name = rustix::net::SocketAddrUnix::new(path)?;
+        rustix::net::connect_unix(&socket, &socket_name)?;
+
+        Ok(SeqPacketChannel {
+            fd: socket, read_buffer: Packet::empty()
+        })
+    }
+
     pub fn read_packet(&mut self) -> Result<Packet, std::io::Error> {
         const MSG_BUF_SIZE: usize = 16 * 1024;
 
@@ -122,6 +139,32 @@ impl SeqPacketChannel {
                 println!("Message exceeded buffer size, reading again...");
             }
         }
+    }
+
+    pub fn write_packet(&mut self, packet: Packet) -> Result<(), std::io::Error> {
+        let slice = [IoSlice::new(&packet.data)];
+
+        let mut control_space = [0; rustix::cmsg_space!(ScmRights(64))];
+        let mut control_buf = SendAncillaryBuffer::new(&mut control_space);
+        let rights: Vec<BorrowedFd> = packet.fds.iter().map(|fd| fd.as_fd()).collect();
+        let res = control_buf.push(SendAncillaryMessage::ScmRights(&rights));
+        if !res {
+            panic!("Failed to send file descriptors.")
+        }
+
+        let num_sent_bytes = rustix::net::sendmsg(
+            &self,
+            &slice,
+            &mut control_buf,
+            // TODO: This seems misspelled? It compiles to MSG_EOR by inspecting the source code. I should raise an issue.
+            SendFlags::EOT
+        )?;
+
+        if num_sent_bytes != packet.data.len() {
+            panic!("Failed to transmit a packet within a single syscall!");
+        }
+
+        Ok(())
     }
 }
 

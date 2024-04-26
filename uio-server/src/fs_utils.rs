@@ -1,3 +1,4 @@
+use std::os::fd::{AsRawFd, BorrowedFd};
 use std::path::{Path, PathBuf};
 
 /// A to a file that will be deleted when this structure is dropped.
@@ -22,3 +23,14 @@ impl Drop for UnlinkOnDrop {
         }
     }
 }
+
+/// Sets the O_CLOEXEC flag on this file descriptor.
+pub fn set_cloexec(fd: BorrowedFd) {
+    unsafe {
+        unsafe {
+            libc::fcntl(fd.as_raw_fd(), libc::F_SETFD, libc::O_CLOEXEC);
+        }
+    }
+}
+
+

@@ -160,6 +160,8 @@ impl SeqPacketChannel {
                 }
             }
 
+            println!("Received bytes: {}, received flags: {:x}", res.bytes, res.flags.bits());
+
             // Check there is an end-of-packed delimination at the end of this message.
             if res.flags.bits() & (libc::MSG_EOR as u32) > 0 {
                 let empty_buffer = Packet::empty();

@@ -24,14 +24,16 @@ fn main() {
 
     loop {
         let mut to_poll = [PollFd::new(&channel, PollFlags::IN)];
-        rustix::event::poll(&mut to_poll, 0).expect("Failed to poll");
+        rustix::event::poll(&mut to_poll, -1).expect("Failed to poll");
         let events = to_poll[0].revents();
+        println!("Received events: {:?}", events);
     
         if events.contains(PollFlags::IN) {
             println!("Received message!");
-            let packet = channel.read_packet().expect("Failed to read message!");
-            let (message, _fds) = packet.try_into_event().expect("Failed to parse packet as event!");
-            println!("Received event: {message:?}");
+            for packet in channel.read_packets().expect("Failed to read message!") {
+                let (message, _fds) = packet.try_into_event().expect("Failed to parse packet as event!");
+                println!("Received event: {message:?}");
+            }
         }
         if events.contains(PollFlags::ERR) {
             panic!("Channel broken!");

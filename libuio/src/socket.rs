@@ -12,7 +12,7 @@ use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, SendAncillaryBuffer
 use crate::fs_utils::UnlinkOnDrop;
 use crate::message::{EventMsg, RequestMsg};
 
-/// A message that can be send through a SeqPacketChannel. It is a vector of bytes that optionally contains
+/// A message that can be send through a StreamChannel. It is a vector of bytes that optionally contains
 /// space for file descriptors.
 pub struct Packet {
     /// The bytes without header that this packet contains.
@@ -105,20 +105,20 @@ pub struct Message<T> {
     pub fds: Vec<OwnedFd>,
 }
 
-pub struct SeqPacketChannel {
+pub struct StreamChannel {
     fd: OwnedFd,
     /// A partial packet containing data that has been read from the socket without having received end-of-message.
     read_buffer: PartialPacket,
 }
 
-pub struct SeqPacketSocket {
+pub struct StreamSocket {
     fd: OwnedFd,
     _path: UnlinkOnDrop,
 }
 
-impl SeqPacketSocket {
+impl StreamSocket {
     /// Creates a new socket that accepts incoming connections. Used by the server.
-    pub fn open(path: PathBuf) -> Result<SeqPacketSocket, std::io::Error> {
+    pub fn open(path: PathBuf) -> Result<StreamSocket, std::io::Error> {
         // Create a socket FD.
         let socket = rustix::net::socket(rustix::net::AddressFamily::UNIX, rustix::net::SocketType::STREAM, None)?;
 
@@ -134,25 +134,25 @@ impl SeqPacketSocket {
         let backlog_size = 32;
         rustix::net::listen(&socket, backlog_size)?;
 
-        Ok(SeqPacketSocket {
+        Ok(StreamSocket {
             fd: socket, _path: UnlinkOnDrop::new(path)
         })
     }
 
     /// Receives a new incoming connection from a program.
-    pub fn accept(&self) -> Result<SeqPacketChannel, std::io::Error> {
+    pub fn accept(&self) -> Result<StreamChannel, std::io::Error> {
         let fd = rustix::net::accept_with(self, rustix::net::SocketFlags::NONBLOCK | rustix::net::SocketFlags::CLOEXEC)?;
-        Ok(SeqPacketChannel { fd, read_buffer: PartialPacket::new() })
+        Ok(StreamChannel { fd, read_buffer: PartialPacket::new() })
     }
 }
 
-impl std::os::fd::AsFd for SeqPacketSocket {
+impl std::os::fd::AsFd for StreamSocket {
     fn as_fd(&self) -> std::os::fd::BorrowedFd<'_> {
         self.fd.as_fd()
     }
 }
 
-impl SeqPacketChannel {
+impl StreamChannel {
     /// Connects to an already existing socket. Used by the client.
     pub fn open(path: &Path) -> Result<Self, std::io::Error> {
         // Create a socket FD.
@@ -166,7 +166,7 @@ impl SeqPacketChannel {
         let socket_name = rustix::net::SocketAddrUnix::new(path)?;
         rustix::net::connect_unix(&socket, &socket_name)?;
 
-        Ok(SeqPacketChannel {
+        Ok(StreamChannel {
             fd: socket, read_buffer: PartialPacket::new()
         })
     }
@@ -272,7 +272,7 @@ impl SeqPacketChannel {
     }
 }
 
-impl std::os::fd::AsFd for SeqPacketChannel {
+impl std::os::fd::AsFd for StreamChannel {
     fn as_fd(&self) -> std::os::fd::BorrowedFd<'_> {
         self.fd.as_fd()
     }

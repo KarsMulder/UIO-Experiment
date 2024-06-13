@@ -4,14 +4,14 @@ use std::path::Path;
 
 use libuio::message::AnnounceMsg;
 use rustix::event::{PollFd, PollFlags};
-use libuio::socket::{Packet, SeqPacketChannel};
+use libuio::socket::{Packet, StreamChannel};
 
 fn main() {
     // Ensure that the path to our socket is available.
     let path = Path::new(libuio::socket::DEFAULT_UIO_SOCKET_PATH);
 
     // Create the actual socket.
-    let mut channel = SeqPacketChannel::open(path)
+    let mut channel = StreamChannel::open(path)
         .expect("Failed to connect to the UIO server!");
 
     println!("Connected to server!");

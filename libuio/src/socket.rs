@@ -188,7 +188,9 @@ impl StreamChannel {
             msg_name: std::ptr::null_mut(),
             msg_namelen: 0,
             msg_iov: &mut iovec as *mut _,
-            msg_iovlen: std::mem::size_of_val(&iovec),
+            // msg_iovlen: the amount of iovecs you pass. In this case, we pass only a single iovec.
+            // It is NOT the amount of bytes those iovecs occupy.
+            msg_iovlen: 1,
             msg_control: &mut control_space as *mut _ as *mut libc::c_void,
             msg_controllen: std::mem::size_of_val(&control_space),
             msg_flags: 0,

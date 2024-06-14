@@ -63,7 +63,7 @@ impl<K: Into<u64>> Epoll<K> {
             &self.epoll_fd,
             file.as_fd(),
             EventData::new_u64(key.into()),
-            EventFlags::IN | EventFlags::OUT | EventFlags::ERR
+            EventFlags::IN | EventFlags::ERR | EventFlags::HUP
         ).map_err(std::io::Error::from)
     }
 }
@@ -100,11 +100,11 @@ impl<K: TryFrom<u64>> Epoll<K> {
                 result.push(Message::Ready(key));
                 continue;
             }
-            if flags & libc::EPOLLIN != 0 {
+            if flags & libc::EPOLLERR != 0 {
                 result.push(Message::Broken(key));
                 continue;
             }
-            if flags & libc::EPOLLIN != 0 {
+            if flags & libc::EPOLLHUP != 0 {
                 result.push(Message::Hup(key));
                 continue;
             }
